@@ -1,25 +1,23 @@
-import { register } from "../service/userService.js";
-import userRepository from "../repositories/userRepository.js";
-import {
-  signAccessToken,
-  signRefreshToken,
-  verifyRefreshToken,
-} from "../utils/jwt.js";
-import {
-  accessTokenCookieOptions,
-  refreshTokenCookieOptions,
-} from "../utils/cookieOptions.js";
 import bcrypt from "bcrypt";
 import StatusCodes from "http-status-codes";
+import userRepository from "../repositories/userRepository.js";
 import {
-  internalErrorResponse,
+  registerService,
+  loginService,
+  refreshService,
+  logoutService,
+} from "../service/userService.js";
+import * as token from "../utils/jwt.js";
+import * as cookieToken from "../utils/cookieOptions.js";
+import {
   successResponse,
   customErrorResponse,
+  internalErrorResponse,
 } from "../utils/common/responseObject.js";
 
-export const registerAuth = async (req, res, next) => {
+export const registerController = async (req, res) => {
   try {
-    const user = await register(req.body);
+    const user = await registerService(req.body);
     res
       .status(StatusCodes.CREATED)
       .json(successResponse(user, "User created successfully"));
@@ -34,103 +32,83 @@ export const registerAuth = async (req, res, next) => {
   }
 };
 
-export const login = async (req, res, next) => {
+export const loginController = async (req, res) => {
   try {
-    const { email, password } = req.body;
-    const user = await userRepository.findUserByEmail(email);
-    console.log("user data:---", user);
-    console.log("User password", user.password);
-    if (!user)
-      return res
-        .status(StatusCodes.UNAUTHORIZED)
-        .json({ message: "Invalid credentials" });
-
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch)
-      return res
-        .status(StatusCodes.UNAUTHORIZED)
-        .json({ message: "Invalid credentials" });
-
-    const payload = { sub: user.id, role: user.role };
-    const accessToken = signAccessToken(payload);
-    const refreshToken = signRefreshToken(payload);
-
-    const hashedRefresh = await bcrypt.hash(refreshToken, 10);
-    await userRepository.updateUser(user.id, { refreshToken: hashedRefresh });
-
-    res.cookie("accessToken", accessToken, accessTokenCookieOptions);
-    res.cookie("refreshToken", refreshToken, refreshTokenCookieOptions);
-
-    res.json({
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-    });
+    const result = await loginService(req.body);
+    res.cookie(
+      "accessToken",
+      result.accessToken,
+      cookieToken.accessTokenCookieOptions,
+    );
+    res.cookie(
+      "refreshToken",
+      result.refreshToken,
+      cookieToken.refreshTokenCookieOptions,
+    );
+    return res
+      .status(StatusCodes.OK)
+      .json(successResponse(result.user, "User logged in successfully"));
   } catch (error) {
-    next(error);
+    console.log("Auth controller error", error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json(customErrorResponse(error));
+    }
+    return res
+      .status(StatusCodes.INTERNAL_SERVER_ERROR)
+      .json(internalErrorResponse(error));
   }
 };
 
-export const refresh = async (req, res, next) => {
+export const refreshController = async (req, res) => {
   try {
     const incomingRefreshToken = req.cookies?.refreshToken;
-    if (!incomingRefreshToken)
-      return res
-        .status(StatusCodes.UNAUTHORIZED)
-        .json({ message: "Refresh token missing" });
+    const tokens = await refreshService(incomingRefreshToken);
 
-    let decoded;
-    try {
-      decoded = verifyRefreshToken(incomingRefreshToken);
-    } catch {
-      return res
-        .status(StatusCodes.UNAUTHORIZED)
-        .json({ message: "Invalid refresh token" });
-    }
-
-    const user = await userRepository.findUserById(decoded.sub);
-    if (!user || !user.refreshToken)
-      return res.status(401).json({ message: "Invalid session" });
-
-    const isValid = await bcrypt.compare(
-      incomingRefreshToken,
-      user.refreshToken,
+    res.cookie(
+      "accessToken",
+      tokens.accessToken,
+      cookieToken.accessTokenCookieOptions,
     );
-    if (!isValid)
-      return res
-        .status(StatusCodes.UNAUTHORIZED)
-        .json({ message: "Invalid session" });
+    res.cookie(
+      "refreshToken",
+      tokens.refreshToken,
+      cookieToken.refreshTokenCookieOptions,
+    );
 
-    const newPayload = { sub: user.id, role: user.role };
-    const newAccessToken = signAccessToken(newPayload);
-    const newRefreshToken = signRefreshToken(newPayload);
-
-    const newHashed = await bcrypt.hash(newRefreshToken, 10);
-    await userRepository.updateUser(user.id, { refreshToken: newHashed });
-
-    res.cookie("accessToken", newAccessToken, accessTokenCookieOptions);
-    res.cookie("refreshToken", newRefreshToken, refreshTokenCookieOptions);
-
-    res.json({ success: true });
+    return res
+      .status(StatusCodes.OK)
+      .json(successResponse({}, "Tokens refreshed successfully"));
   } catch (error) {
-    next(error);
+    console.log("Refresh controller error:", error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json(customErrorResponse(error));
+    }
+    return res
+      .status(StatusCodes.INTERNAL_SERVER_ERROR)
+      .json(internalErrorResponse(error));
   }
 };
 
-export const logout = async (req, res, next) => {
+export const logoutController = async (req, res) => {
   try {
+    console.log("cookies:", req.cookies);
+    console.log("headers cookie:", req.headers.cookie);
     const refreshToken = req.cookies?.refreshToken;
-    if (refreshToken) {
-      try {
-        const decoded = verifyRefreshToken(refreshToken);
-        await userRepository.updateUser(decoded.sub, { refreshToken: null });
-      } catch {}
-    }
+    await logoutService(refreshToken);
+
     res.clearCookie("accessToken", { path: "/" });
-    res.clearCookie("refreshToken", { path: "/api/v1/auth/refresh" });
-    res.json({ message: "Logged out" });
+    res.clearCookie("refreshToken", { path: "/" });
+
+    return res
+      .status(StatusCodes.OK)
+      .json(successResponse({}, "Logged out successfully"));
   } catch (error) {
-    next(error);
+    console.log("Logout controller error:", error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json(customErrorResponse(error));
+    }
+    return res
+      .status(StatusCodes.INTERNAL_SERVER_ERROR)
+      .json(internalErrorResponse(error));
   }
 };
