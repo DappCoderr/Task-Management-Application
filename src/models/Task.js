@@ -45,6 +45,15 @@ export const Task = sequelize.define(
       type: DataTypes.DATE,
       allowNull: true,
     },
+    attachmentUrl: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      validate: {
+        isUrl: {
+          msg: "Attachment URL must be valid",
+        },
+      },
+    },
     userId: {
       type: DataTypes.UUID,
       allowNull: false,
