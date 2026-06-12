@@ -1,5 +1,5 @@
-import Sequlize from 'sequelize'
-import { DATABASE_URL } from './serverConfig.js';
+import Sequlize from "sequelize";
+import { DATABASE_URL } from "./serverConfig.js";
 
 export const sequelize = new Sequlize(DATABASE_URL, {
   dialect: "postgres",
@@ -22,4 +22,4 @@ export const connectDB = async () => {
     console.error("Database connection failed:", error);
     process.exit(1);
   }
-}; 
+};

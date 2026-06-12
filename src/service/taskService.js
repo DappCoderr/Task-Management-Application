@@ -1,6 +1,12 @@
-import taskRepository from "../repositories/taskRepository";
+import taskRepository from "../repositories/taskRepository.js";
 
-export const createTaskForUser = async ({ title, description, dueDate, priority, userId }) => {
+export const createTaskForUser = async ({
+  title,
+  description,
+  dueDate,
+  priority,
+  userId,
+}) => {
   if (!title || !description) {
     throw new Error("Title and description are required");
   }
